@@ -1,66 +1,101 @@
 # CamGuard for Omarchy
 
-CamGuard is an Omarchy bar plugin that photographs activity at a locked
-laptop. It watches for a lid opening, pointer movement, trackpad activity, or
-a key press, without recording keys, coordinates, or raw input events.
+An **Omarchy bar plugin** that photographs activity on a **locked** laptop: lid open, pointer movement, trackpad touch, or a key press — without recording keys, coordinates, or raw input events.
 
-## Behavior
+> **⚡ Built for Omarchy 4.0.3+:** lock detection uses Hyprland compositor state (same signal as `omarchy hyprland session locked`). No custom lock-plugin patch, no access to PAM / fingerprint / password objects.
 
-When Omarchy is locked, the first activity captures one photo immediately.
-Further activity resets two follow-up captures for 5 and 10 seconds later.
-Capture stops on unlock.
-
-On unlock, CamGuard removes the last three photos from that lock session. If
-the session produced photos and images still remain, Omarchy displays a
-critical notification. Images older than 24 hours are removed automatically.
-
-The panel shows the three newest images from the last five minutes, opens an
-image in the default viewer, and can delete all stored photos.
-
-## Requirements
-
-- Omarchy 4.0.3 or newer
-- Python 3.11 or newer
-- `ffmpeg`, `libnotify`, `polkit`, and systemd
-- A V4L2 camera (default: `/dev/video0`)
-- Linux input event devices and the system `input` group
-
-The installer requires administrator approval because the daemon needs
-read-only access to `/dev/input/event*`. It does not modify UWSM environment
-files or the Omarchy lock plugin.
-
-## Install
-
-```bash
-omarchy plugin add https://github.com/austrasien/omarchy-camguard.git --enable
-cd ~/.config/omarchy/plugins/austraz.camguard
-./install.sh
+```
+Locked session  →  lid / pointer / keyboard trigger  →  photo burst  →  unlock cleanup + optional alert
 ```
 
-The plugin installs:
+---
 
-- the daemon at `/usr/local/libexec/omarchy-camguard-daemon`;
-- its hardened system service at
-  `/etc/systemd/system/omarchy-camguard.service`;
-- the controller at `~/.local/bin/omarchy-camguardctl`;
-- configuration under `~/.config/omarchy-camguard/`.
+### ☕ Support the Project
+If CamGuard catches something you would rather have on disk than wonder about later, a tip is always appreciated.
 
-The install script detects the current user, primary group, UID, and home
-directory. Existing configuration and photos are preserved on updates. Run it
-from an unlocked session; it restarts Omarchy Shell to load the lock bridge
-cleanly.
+[![Donate via PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=for-the-badge&logo=paypal)](https://paypal.me/austraz)
 
-## Update
+---
 
-```bash
+### 💬 Feedback & Community
+Got a question, found a bug, or have a suggestion? Open an [**issue**](https://github.com/austrasien/omarchy-camguard/issues).
+
+---
+
+## 🚀 Overview
+
+When Omarchy is locked, CamGuard arms a small privileged daemon. The first activity captures one photo immediately; further activity resets two follow-up captures at +5 s and +10 s. Capture stops on unlock.
+
+| | Without ❌ | With CamGuard ✅ |
+| :--- | :--- | :--- |
+| **Someone opens the lid** | You unlock later with no trail | Photos under `~/Pictures/CamGuard` |
+| **Typing / trackpad while locked** | Same | Burst capped to a short activity window |
+| **Your own unlock** | — | Last 3 session photos removed so routine unlocks stay quiet |
+| **Intruder left more evidence** | Easy to miss | Critical Omarchy notification if photos remain |
+| **Old captures** | Manual cleanup | Auto-delete after 24 h (configurable) |
+
+> **Note:** The camera privacy LED is hardware-controlled on most laptops. CamGuard cannot hide it.
+
+## ✨ Key Features
+
+### 📸 Locked-session capture
+- Triggers: lid open, mouse / trackpad motion, keyboard press.
+- First shot immediate; activity resets the +5 s / +10 s schedule.
+- Atomic PNG writes; images mode `0600`.
+
+### 🧹 Unlock hygiene
+- Deletes only the last three photos from the **current** lock session.
+- If that session produced photos and files still remain → critical `notify-send` popup.
+- Retention sweep every five minutes while the daemon runs.
+
+### 🧩 Omarchy bar panel
+- Icon turns white when photos from the last five minutes exist.
+- Gallery of up to three recent shots; click opens the image (no file-manager detour).
+- Enable / disable, open folder, delete all photos.
+- Reminder text: photos older than 24 hours are removed automatically.
+
+### 🛡 Hardened daemon
+- Systemd unit runs as **your** user (never root), with `input` group for `/dev/input/event*`.
+- No network except Unix sockets (notifications); home mostly read-only; writes limited to photo + state dirs.
+- Portable installer: detects user / UID / home, preserves config on updates, non-destructive uninstall.
+
+## 🛠 Installation (Omarchy)
+
+**Requirements:** Omarchy 4.0.3+, Python 3.11+, `ffmpeg`, `libnotify`, `polkit`, a V4L2 camera (`/dev/video0` by default), Linux input devices.
+
+1. **Add the plugin and install the daemon** (unlocked session):
+
+   ```sh
+   omarchy plugin add https://github.com/austrasien/omarchy-camguard.git --enable
+   cd ~/.config/omarchy/plugins/austraz.camguard
+   ./install.sh
+   ```
+
+   `install.sh` asks for administrator approval via Polkit, installs the daemon + systemd unit + `~/.local/bin/omarchy-camguardctl`, then restarts Omarchy Shell so the lock bridge loads cleanly.
+
+2. **Useful commands:**
+
+   ```sh
+   omarchy-camguardctl status
+   omarchy-camguardctl enable
+   omarchy-camguardctl disable
+   omarchy-camguardctl open
+   omarchy-camguardctl delete
+   ```
+
+### Update
+
+```sh
 omarchy plugin update austraz.camguard --yes
 cd ~/.config/omarchy/plugins/austraz.camguard
 ./install.sh
 ```
 
-## Configure
+Existing configuration and photos are preserved.
 
-Edit `~/.config/omarchy-camguard/config.json`:
+### Configure
+
+Edit `~/.config/omarchy-camguard/config.json` (created on first install):
 
 ```json
 {
@@ -72,51 +107,39 @@ Edit `~/.config/omarchy-camguard/config.json`:
 }
 ```
 
-`photoDirectory` may be added to select another directory. If omitted, it is
-`~/Pictures/CamGuard`.
+Optional: `"photoDirectory": "/path/to/folder"`. Default is `~/Pictures/CamGuard`. Save the file; the daemon reloads it.
 
-Apply configuration changes automatically by saving the file. Useful commands:
+### Uninstall
 
-```bash
-omarchy-camguardctl status
-omarchy-camguardctl enable
-omarchy-camguardctl disable
-omarchy-camguardctl open
-omarchy-camguardctl delete
-```
-
-## Uninstall
-
-```bash
+```sh
 cd ~/.config/omarchy/plugins/austraz.camguard
 ./uninstall.sh
 omarchy plugin remove austraz.camguard
 ```
 
-Uninstalling preserves `~/Pictures/CamGuard` and
-`~/.config/omarchy-camguard`. Remove those manually if they are no longer
-needed.
+Photos and `~/.config/omarchy-camguard` are kept; remove them manually if you want.
 
-## Troubleshooting
+## 🩺 Troubleshooting
 
-```bash
+```sh
 systemctl status omarchy-camguard.service
 journalctl -u omarchy-camguard.service --since today
 omarchy-camguardctl status
-omarchy-shell lock isLocked
 ```
 
-If the status reports `lockState: "unknown"`, restart the shell with
-`omarchy restart shell` and check that the plugin is enabled.
+If status shows `lockState: "unknown"`, run `omarchy restart shell` from an unlocked session and confirm the plugin is enabled.
 
-The camera privacy LED is hardware-controlled on most laptops and cannot be
-disabled by CamGuard.
+## 🔐 Security and privacy
 
-## Security and privacy
+See [SECURITY.md](SECURITY.md). Short version:
 
-See [SECURITY.md](SECURITY.md) for the permission model, stored data, and
-responsible disclosure guidance.
+- Key codes, typed text, and pointer coordinates are **never** logged or written to disk.
+- Lock state is a boolean published from Hyprland monitor metadata — not from the authentication service.
+- The installer does **not** touch `~/.config/uwsm/env.d/` or patch the Omarchy lock plugin.
 
-## License
+## ⚖️ License
 
-MIT
+Licensed under the **MIT License**. Permissive for both personal and commercial use, provided attribution is maintained.
+
+---
+*Developed so a locked Omarchy laptop leaves a trail when someone else wakes it — without babysitting the camera.*
