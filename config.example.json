@@ -1,0 +1,7 @@
+{
+  "camera": "/dev/video0",
+  "enabled": true,
+  "intervalSeconds": 5,
+  "resolution": "1280x720",
+  "retentionSeconds": 86400
+}

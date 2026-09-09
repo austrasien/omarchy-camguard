@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "austraz.camguard",
+  "name": "CamGuard",
+  "version": "1.1.0",
+  "author": "austrasien",
+  "description": "Capture webcam photos after locked-session lid, pointer, or keyboard activity.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "activation": "on-demand",
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "CamGuard",
+    "description": "Monitor lid, mouse, trackpad, and keyboard triggers while the computer is locked.",
+    "category": "System",
+    "aliases": [
+      "camera",
+      "security"
+    ],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

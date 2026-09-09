@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.log
+.coverage
+.pytest_cache/
+
+# Runtime data and local configuration never belong in the repository.
+config.json
+status.json
+active-session.json
+lock-state.json
+*.png
+*.jpg
+*.jpeg
