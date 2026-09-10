@@ -107,7 +107,10 @@ Edit `~/.config/omarchy-camguard/config.json` (created on first install):
 }
 ```
 
-Optional: `"photoDirectory": "/path/to/folder"`. Default is `~/Pictures/CamGuard`. Save the file; the daemon reloads it.
+Optional: set `"photoDirectory"` to another folder under your home, or use
+**Directory...** in the panel (desktop folder picker). Default is
+`~/Pictures/CamGuard`. Save the file; the daemon reloads it. Changing the
+directory via the panel also updates the systemd write path (Polkit prompt).
 
 ### Uninstall
 

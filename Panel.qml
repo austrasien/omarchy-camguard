@@ -14,6 +14,7 @@ Panel {
 
   readonly property string ctl: (Quickshell.env("HOME") || "") + "/.local/bin/omarchy-camguardctl"
   readonly property color foreground: bar ? bar.foreground : Color.foreground
+  readonly property color accent: Color.accent
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.5)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -29,6 +30,7 @@ Panel {
   property real lastTriggerAt: 0
   property string lastError: ""
   property string updatedAt: ""
+  property string photoDirectory: ""
   property var recentPhotos: []
   property real nowSeconds: Date.now() / 1000
   readonly property bool hasRecentPhotos: recentPhotos.length > 0
@@ -82,6 +84,15 @@ Panel {
     return parts[parts.length - 1]
   }
 
+  function directoryLabel(path) {
+    if (!path) return "—"
+    var home = Quickshell.env("HOME") || ""
+    var value = String(path)
+    if (home !== "" && value.indexOf(home) === 0)
+      return "~" + value.slice(home.length)
+    return value
+  }
+
   function applyStatus(raw) {
     try {
       var value = JSON.parse(String(raw || "{}"))
@@ -96,6 +107,7 @@ Panel {
       lastTriggerAt = Number(value.lastTriggerAt || 0)
       lastError = String(value.lastError || "")
       updatedAt = String(value.updatedAt || "")
+      photoDirectory = String(value.photoDirectory || "")
       recentPhotos = Array.isArray(value.recentPhotos) ? value.recentPhotos : []
     } catch (error) {
       serviceActive = false
@@ -124,6 +136,12 @@ Panel {
   function deletePhotos() {
     if (actionProc.running) return
     actionProc.command = [root.ctl, "delete"]
+    actionProc.running = true
+  }
+
+  function chooseDirectory() {
+    if (actionProc.running) return
+    actionProc.command = [root.ctl, "choose-directory"]
     actionProc.running = true
   }
 
@@ -313,6 +331,22 @@ Panel {
             font.pixelSize: Style.font.bodySmall
             horizontalAlignment: Text.AlignRight
           }
+
+          Text {
+            text: "Directory"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+          Text {
+            width: content.width / 2 - Style.space(10)
+            text: root.directoryLabel(root.photoDirectory)
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideMiddle
+          }
         }
 
         Text {
@@ -348,14 +382,29 @@ Panel {
           }
         }
 
-        Button {
+        Row {
           width: parent.width
-          text: "Delete photos"
-          enabled: root.photoCount > 0
-          foreground: root.urgent
-          fontFamily: root.fontFamily
-          bordered: true
-          onClicked: root.deletePhotos()
+          spacing: Style.space(8)
+
+          Button {
+            width: (parent.width - parent.spacing) / 2
+            text: "Directory..."
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            bordered: true
+            onClicked: root.chooseDirectory()
+          }
+
+          Button {
+            width: (parent.width - parent.spacing) / 2
+            text: "Delete photos"
+            enabled: root.photoCount > 0
+            foreground: root.accent
+            accent: root.accent
+            fontFamily: root.fontFamily
+            bordered: true
+            onClicked: root.deletePhotos()
+          }
         }
 
         Text {

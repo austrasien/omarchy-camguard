@@ -18,6 +18,8 @@ CONFIG_PATH = HOME / ".config" / "omarchy-camguard" / "config.json"
 STATUS_PATH = HOME / ".local" / "state" / "omarchy-camguard" / "status.json"
 SESSION_PATH = HOME / ".local" / "state" / "omarchy-camguard" / "active-session.json"
 DEFAULT_PHOTO_DIR = HOME / "Pictures" / "CamGuard"
+PLUGIN_DIR = HOME / ".config" / "omarchy" / "plugins" / "austraz.camguard"
+UPDATE_SERVICE_SYSTEM = PLUGIN_DIR / "update-service-system.sh"
 RUNTIME_DIR = Path(
     os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
 ) / "omarchy-camguard"
@@ -68,7 +70,32 @@ def service_active() -> bool:
 
 def photo_directory() -> Path:
     configured = read_json(CONFIG_PATH).get("photoDirectory", DEFAULT_PHOTO_DIR)
-    return Path(configured).expanduser()
+    return Path(str(configured)).expanduser()
+
+
+def resolve_photo_directory(value: str | Path) -> Path:
+    raw = Path(str(value)).expanduser()
+    if not raw.is_absolute():
+        raw = HOME / raw
+    resolved = raw.resolve()
+    home = HOME.resolve()
+    try:
+        resolved.relative_to(home)
+    except ValueError as error:
+        raise ValueError("Photo directory must stay under your home directory") from error
+    return resolved
+
+
+def uri_to_path(value: str) -> Path:
+    text = str(value).strip()
+    if text.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+
+        parsed = urlparse(text)
+        if parsed.scheme != "file":
+            raise ValueError("Unsupported folder URI")
+        text = unquote(parsed.path)
+    return Path(text)
 
 
 def stored_photos() -> list[Path]:
@@ -129,18 +156,78 @@ def status() -> dict[str, Any]:
         value["lastTriggerAt"] = 0
     value["recentPhotos"] = recent
     value["hasRecentPhotos"] = bool(recent)
+    value["photoDirectory"] = str(photo_directory())
     return value
 
 
-def set_enabled(enabled: bool) -> None:
-    config = read_json(CONFIG_PATH)
-    config["enabled"] = enabled
+def ensure_config_defaults(config: dict[str, Any]) -> dict[str, Any]:
     config.setdefault("camera", "/dev/video0")
     config.setdefault("resolution", "1280x720")
     config.setdefault("intervalSeconds", 5)
     config.setdefault("retentionSeconds", 86400)
     config.setdefault("photoDirectory", str(DEFAULT_PHOTO_DIR))
+    config.setdefault("enabled", True)
+    return config
+
+
+def set_enabled(enabled: bool) -> None:
+    config = ensure_config_defaults(read_json(CONFIG_PATH))
+    config["enabled"] = enabled
     write_json(CONFIG_PATH, config)
+
+
+def refresh_service_photo_path(directory: Path) -> None:
+    if not UPDATE_SERVICE_SYSTEM.is_file():
+        raise RuntimeError("CamGuard update helper is missing. Reinstall the plugin.")
+    user_name = os.environ.get("USER") or os.environ.get("LOGNAME") or Path.home().name
+    user_group = subprocess.check_output(["id", "-gn"], text=True).strip()
+    user_uid = str(os.getuid())
+    result = subprocess.run(
+        [
+            "pkexec",
+            str(UPDATE_SERVICE_SYSTEM),
+            user_name,
+            user_group,
+            user_uid,
+            str(HOME),
+            str(directory),
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Failed to update the CamGuard service write path")
+
+
+def set_photo_directory(value: str | Path, *, update_service: bool = True) -> Path:
+    directory = resolve_photo_directory(value)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(directory, 0o700)
+    config = ensure_config_defaults(read_json(CONFIG_PATH))
+    previous = resolve_photo_directory(config.get("photoDirectory", DEFAULT_PHOTO_DIR))
+    config["photoDirectory"] = str(directory)
+    write_json(CONFIG_PATH, config)
+    if update_service and directory != previous:
+        refresh_service_photo_path(directory)
+    return directory
+
+
+def choose_photo_directory() -> Path | None:
+    command = [
+        "omarchy-file-select",
+        "--directory",
+        "--title",
+        "CamGuard photo directory",
+    ]
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    if result.returncode == 1:
+        return None
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit {result.returncode}"
+        raise RuntimeError(f"Folder chooser failed: {detail}")
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not lines:
+        return None
+    return set_photo_directory(uri_to_path(lines[0]))
 
 
 def delete_photos() -> int:
@@ -210,7 +297,7 @@ def reveal_photo(value: str) -> bool:
 def usage() -> int:
     print(
         "usage: omarchy-camguardctl status|enable|disable|toggle|open|delete"
-        "|reveal <photo>|lock-state <true|false>",
+        "|choose-directory|set-directory <path>|reveal <photo>|lock-state <true|false>",
         file=sys.stderr,
     )
     return 2
@@ -229,6 +316,27 @@ def main() -> int:
         if len(sys.argv) != 3 or sys.argv[2] not in {"true", "false"}:
             return usage()
         publish_lock_state(sys.argv[2] == "true")
+        return 0
+    if command == "set-directory":
+        if len(sys.argv) != 3:
+            return usage()
+        try:
+            print(set_photo_directory(sys.argv[2]))
+        except (OSError, RuntimeError, ValueError) as error:
+            print(error, file=sys.stderr)
+            return 1
+        return 0
+    if command == "choose-directory":
+        if len(sys.argv) != 2:
+            return usage()
+        try:
+            chosen = choose_photo_directory()
+        except (OSError, RuntimeError, ValueError) as error:
+            print(error, file=sys.stderr)
+            return 1
+        if chosen is None:
+            return 0
+        print(chosen)
         return 0
     if len(sys.argv) != 2:
         return usage()

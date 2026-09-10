@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-[[ $EUID -eq 0 ]] || { echo "Run this helper through install.sh." >&2; exit 1; }
-[[ $# -eq 4 ]] || {
-  echo "usage: install-system.sh <user> <group> <uid> <home>" >&2
+[[ $EUID -eq 0 ]] || { echo "Run this helper through install.sh or omarchy-camguardctl." >&2; exit 1; }
+[[ $# -eq 4 || $# -eq 5 ]] || {
+  echo "usage: install-system.sh <user> <group> <uid> <home> [photo-dir]" >&2
   exit 2
 }
 
@@ -12,6 +12,7 @@ user_name=$1
 user_group=$2
 user_uid=$3
 user_home=$4
+photo_dir_arg=${5:-}
 
 [[ $user_name =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Invalid user name." >&2; exit 2; }
 [[ $user_group =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "Invalid group name." >&2; exit 2; }
@@ -35,9 +36,11 @@ install -o root -g root -m 0755 \
 install -o root -g root -m 0644 \
   "$plugin_dir/omarchy-camguard.service" \
   /etc/systemd/system/omarchy-camguard.service.in
+install -o root -g root -m 0755 \
+  "$plugin_dir/render-service.py" \
+  /usr/local/libexec/omarchy-camguard-render-service
 
 install -d -o "$user_name" -g "$user_group" -m 0700 \
-  "$user_home/Pictures/CamGuard" \
   "$user_home/.local/state/omarchy-camguard" \
   "$user_home/.config/omarchy-camguard"
 install -d -o "$user_name" -g "$user_group" -m 0755 "$user_home/.local/bin"
@@ -57,25 +60,30 @@ fi
 unit_path=/etc/systemd/system/omarchy-camguard.service
 unit_tmp=$(mktemp "${unit_path}.XXXXXX")
 trap 'rm -f "$unit_tmp"' EXIT
-/usr/bin/python3 - \
-  /etc/systemd/system/omarchy-camguard.service.in \
-  "$unit_tmp" "$user_name" "$user_group" "$user_uid" "$user_home" <<'PY'
+render_args=(
+  /usr/local/libexec/omarchy-camguard-render-service
+  /etc/systemd/system/omarchy-camguard.service.in
+  "$unit_tmp"
+  "$user_name"
+  "$user_group"
+  "$user_uid"
+  "$user_home"
+)
+if [[ -n $photo_dir_arg ]]; then
+  render_args+=("$photo_dir_arg")
+fi
+/usr/bin/python3 "${render_args[@]}"
+photo_dir=$(
+  /usr/bin/python3 - <<'PY' "$unit_tmp"
 import sys
 from pathlib import Path
-
-source, destination, user, group, uid, home = sys.argv[1:]
-text = Path(source).read_text(encoding="utf-8")
-for marker, value in {
-    "@USER@": user,
-    "@GROUP@": group,
-    "@UID@": uid,
-    "@HOME@": home,
-}.items():
-    text = text.replace(marker, value)
-if "@" in text:
-    raise SystemExit("Unresolved service template marker")
-Path(destination).write_text(text, encoding="utf-8")
+for line in Path(sys.argv[1]).read_text().splitlines():
+    if line.startswith("ReadWritePaths=") and "/.local/state/omarchy-camguard" not in line:
+        print(line.split("=", 1)[1])
+        break
 PY
+)
+install -d -o "$user_name" -g "$user_group" -m 0700 "$photo_dir"
 install -o root -g root -m 0644 "$unit_tmp" "$unit_path"
 rm -f "$unit_tmp"
 trap - EXIT

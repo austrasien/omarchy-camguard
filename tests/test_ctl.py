@@ -47,5 +47,37 @@ class LockPublisherTests(unittest.TestCase):
         self.assertEqual(changed["generation"], 1)
 
 
+class PhotoDirectoryTests(unittest.TestCase):
+    def test_resolve_rejects_paths_outside_home(self) -> None:
+        with self.assertRaises(ValueError):
+            ctl.resolve_photo_directory("/tmp/camguard")
+
+    def test_set_photo_directory_writes_config_without_service_update(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original_home = ctl.HOME
+            original_config = ctl.CONFIG_PATH
+            original_default = ctl.DEFAULT_PHOTO_DIR
+            ctl.HOME = root / "home"
+            ctl.HOME.mkdir()
+            ctl.CONFIG_PATH = ctl.HOME / "config.json"
+            ctl.DEFAULT_PHOTO_DIR = ctl.HOME / "Pictures" / "CamGuard"
+            try:
+                target = ctl.HOME / "Snapshots"
+                chosen = ctl.set_photo_directory(target, update_service=False)
+                config = json.loads(ctl.CONFIG_PATH.read_text())
+                self.assertEqual(chosen, target.resolve())
+                self.assertEqual(config["photoDirectory"], str(target.resolve()))
+                self.assertTrue(target.exists())
+            finally:
+                ctl.HOME = original_home
+                ctl.CONFIG_PATH = original_config
+                ctl.DEFAULT_PHOTO_DIR = original_default
+
+    def test_uri_to_path_decodes_file_uris(self) -> None:
+        path = ctl.uri_to_path("file:///home/example/My%20Photos")
+        self.assertEqual(path, Path("/home/example/My Photos"))
+
+
 if __name__ == "__main__":
     unittest.main()

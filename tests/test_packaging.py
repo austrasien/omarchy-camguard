@@ -13,7 +13,7 @@ class PackagingTests(unittest.TestCase):
     def test_manifest_entry_points_exist(self) -> None:
         manifest = json.loads((PLUGIN_DIR / "manifest.json").read_text())
         self.assertEqual(manifest["schemaVersion"], 1)
-        self.assertEqual(manifest["version"], "1.1.0")
+        self.assertEqual(manifest["version"], "1.2.0")
         for entry_point in manifest["entryPoints"].values():
             self.assertTrue((PLUGIN_DIR / entry_point).is_file())
 
@@ -27,6 +27,8 @@ class PackagingTests(unittest.TestCase):
             "bin/omarchy-camguardctl",
             "install.sh",
             "install-system.sh",
+            "update-service-system.sh",
+            "render-service.py",
             "uninstall.sh",
             "uninstall-system.sh",
         ):
@@ -37,6 +39,8 @@ class PackagingTests(unittest.TestCase):
             "bin/omarchy-camguardctl",
             "install.sh",
             "install-system.sh",
+            "update-service-system.sh",
+            "render-service.py",
             "uninstall.sh",
             "uninstall-system.sh",
         ):
@@ -66,12 +70,14 @@ class PackagingTests(unittest.TestCase):
             "@GROUP@": "example",
             "@UID@": "1234",
             "@HOME@": "/home/example",
+            "@PHOTO_DIR@": "/home/example/Pictures/CamGuard",
         }
         for marker, value in values.items():
             text = text.replace(marker, value)
         self.assertNotIn("@", text)
         self.assertIn("User=example", text)
         self.assertIn("Environment=XDG_RUNTIME_DIR=/run/user/1234", text)
+        self.assertIn("ReadWritePaths=/home/example/Pictures/CamGuard", text)
 
     def test_lock_bridge_uses_compositor_state_only(self) -> None:
         text = (PLUGIN_DIR / "Service.qml").read_text()
