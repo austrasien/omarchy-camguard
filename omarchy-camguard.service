@@ -29,9 +29,9 @@ ProtectKernelLogs=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=@PROTECT_HOME@
 ReadOnlyPaths=@HOME@/.config/omarchy-camguard
-ReadWritePaths=@PHOTO_DIR@
+@PHOTO_READWRITE_LINE@
 ReadWritePaths=@HOME@/.local/state/omarchy-camguard
 RestrictNamespaces=yes
 RestrictAddressFamilies=AF_UNIX

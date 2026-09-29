@@ -13,7 +13,7 @@ class PackagingTests(unittest.TestCase):
     def test_manifest_entry_points_exist(self) -> None:
         manifest = json.loads((PLUGIN_DIR / "manifest.json").read_text())
         self.assertEqual(manifest["schemaVersion"], 1)
-        self.assertEqual(manifest["version"], "1.2.0")
+        self.assertEqual(manifest["version"], "1.2.1")
         for entry_point in manifest["entryPoints"].values():
             self.assertTrue((PLUGIN_DIR / entry_point).is_file())
 
@@ -70,14 +70,17 @@ class PackagingTests(unittest.TestCase):
             "@GROUP@": "example",
             "@UID@": "1234",
             "@HOME@": "/home/example",
-            "@PHOTO_DIR@": "/home/example/Pictures/CamGuard",
+            "@PROTECT_HOME@": "read-only",
+            "@PHOTO_READWRITE_LINE@": 'ReadWritePaths="/home/example/Pictures/CamGuard"',
         }
         for marker, value in values.items():
             text = text.replace(marker, value)
+        text = "\n".join(line for line in text.splitlines() if line.strip() != "")
         self.assertNotIn("@", text)
         self.assertIn("User=example", text)
         self.assertIn("Environment=XDG_RUNTIME_DIR=/run/user/1234", text)
-        self.assertIn("ReadWritePaths=/home/example/Pictures/CamGuard", text)
+        self.assertIn('ReadWritePaths="/home/example/Pictures/CamGuard"', text)
+        self.assertIn("ProtectHome=read-only", text)
 
     def test_lock_bridge_uses_compositor_state_only(self) -> None:
         text = (PLUGIN_DIR / "Service.qml").read_text()

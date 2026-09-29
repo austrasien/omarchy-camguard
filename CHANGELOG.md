@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 - 2026-09-29
+
+- Keep the bar icon on the transparent-bar contrast color so it turns dark on a light background.
+- Let a photo folder on a user FUSE mount (pCloud, rclone) be written by the hardened service.
+- Sync the systemd unit from `photoDirectory` without putting UTF-8 paths on the Polkit command line.
+
 ## 1.2.0 - 2026-09-10
 
 - Add a **Directory...** panel button to choose the on-disk photo folder (home only).

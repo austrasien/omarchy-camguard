@@ -169,8 +169,8 @@ Panel {
     bar: root.bar
     text: "󰄀"
     active: root.capturing
-    foreground: root.hasRecentPhotos ? "#ffffff" : root.foreground
-    useActiveColor: !root.hasRecentPhotos
+    foreground: root.bar ? root.bar.barForeground : Color.foreground
+    useActiveColor: false
     opacity: root.hasRecentPhotos || (root.enabled && root.serviceActive) ? 1.0 : 0.45
     tooltipText: "CamGuard · " + root.stateTitle
 

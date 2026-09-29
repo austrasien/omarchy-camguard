@@ -176,12 +176,15 @@ def set_enabled(enabled: bool) -> None:
     write_json(CONFIG_PATH, config)
 
 
-def refresh_service_photo_path(directory: Path) -> None:
+def refresh_service_photo_path(directory: Path | None = None) -> None:
+    del directory  # path is read from config inside the privileged helper
     if not UPDATE_SERVICE_SYSTEM.is_file():
         raise RuntimeError("CamGuard update helper is missing. Reinstall the plugin.")
     user_name = os.environ.get("USER") or os.environ.get("LOGNAME") or Path.home().name
     user_group = subprocess.check_output(["id", "-gn"], text=True).strip()
     user_uid = str(os.getuid())
+    # Do not pass the photo path on argv: pkexec/GLib breaks on some UTF-8
+    # paths (emoji). The helper reads photoDirectory from config.json.
     result = subprocess.run(
         [
             "pkexec",
@@ -190,7 +193,6 @@ def refresh_service_photo_path(directory: Path) -> None:
             user_group,
             user_uid,
             str(HOME),
-            str(directory),
         ],
         check=False,
     )
@@ -200,13 +202,16 @@ def refresh_service_photo_path(directory: Path) -> None:
 
 def set_photo_directory(value: str | Path, *, update_service: bool = True) -> Path:
     directory = resolve_photo_directory(value)
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(directory, 0o700)
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(directory, 0o700)
+    except OSError:
+        # FUSE backends (pCloud/rclone) may ignore or reject mode bits.
+        pass
     config = ensure_config_defaults(read_json(CONFIG_PATH))
-    previous = resolve_photo_directory(config.get("photoDirectory", DEFAULT_PHOTO_DIR))
     config["photoDirectory"] = str(directory)
     write_json(CONFIG_PATH, config)
-    if update_service and directory != previous:
+    if update_service:
         refresh_service_photo_path(directory)
     return directory
 
