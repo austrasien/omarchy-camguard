@@ -13,7 +13,7 @@ class PackagingTests(unittest.TestCase):
     def test_manifest_entry_points_exist(self) -> None:
         manifest = json.loads((PLUGIN_DIR / "manifest.json").read_text())
         self.assertEqual(manifest["schemaVersion"], 1)
-        self.assertEqual(manifest["version"], "1.2.1")
+        self.assertEqual(manifest["version"], "1.2.2")
         for entry_point in manifest["entryPoints"].values():
             self.assertTrue((PLUGIN_DIR / entry_point).is_file())
 

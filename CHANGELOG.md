@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.2 - 2026-10-13
+
+- Fix false "intruder" alerts after a normal password unlock: the notification now
+  counts only leftover photos from the **current** lock session, not older files
+  still sitting in the photo folder.
+- Raise unlock hygiene from 3 to 6 photos so a lid-open burst plus a password
+  burst is cleared silently.
+- Intruder toast click opens the newest remaining session photo (`omarchy-notification-send --exec xdg-open`).
+- Toast thumbnail uses that photo path for `--image` / `-i` instead of the
+  unresolved `camera-photo` theme icon (broken checkerboard).
+
 ## 1.2.1 - 2026-09-29
 
 - Keep the bar icon on the transparent-bar contrast color so it turns dark on a light background.

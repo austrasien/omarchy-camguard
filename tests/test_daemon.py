@@ -73,18 +73,40 @@ class SessionManifestTests(unittest.TestCase):
         camguard.record_session_photo(str(photo), "keyboard")
         return photo
 
-    def test_unlock_deletes_only_last_three_session_photos(self) -> None:
+    def test_unlock_deletes_only_newest_session_photos(self) -> None:
         camguard.start_or_resume_session(4)
-        photos = [self.create_and_record(f"{index}.png") for index in range(4)]
-        self.assertEqual(camguard.finish_session(self.config, 3), 3)
+        photos = [self.create_and_record(f"{index}.png") for index in range(7)]
+        deleted, remaining = camguard.finish_session(self.config, 6)
+        self.assertEqual(deleted, 6)
+        self.assertEqual(remaining, [photos[0]])
         self.assertTrue(photos[0].exists())
         self.assertTrue(all(not photo.exists() for photo in photos[1:]))
+
+    def test_lid_plus_password_burst_is_fully_cleared(self) -> None:
+        """Lid burst (3) + password burst (3) must not leave a false intruder alert."""
+        camguard.start_or_resume_session(5)
+        photos = [self.create_and_record(f"{index}.png") for index in range(6)]
+        deleted, remaining = camguard.finish_session(self.config)
+        self.assertEqual(deleted, 6)
+        self.assertEqual(remaining, [])
+        self.assertTrue(all(not photo.exists() for photo in photos))
+
+    def test_unlock_remaining_ignores_older_directory_leftovers(self) -> None:
+        leftover = self.photos / "old-evidence.png"
+        leftover.write_bytes(b"png")
+        camguard.start_or_resume_session(6)
+        session_photo = self.create_and_record("unlock.png")
+        deleted, remaining = camguard.finish_session(self.config)
+        self.assertEqual(deleted, 1)
+        self.assertEqual(remaining, [])
+        self.assertFalse(session_photo.exists())
+        self.assertTrue(leftover.exists())
 
     def test_session_without_photos_deletes_nothing_old(self) -> None:
         old_photo = self.photos / "old-evidence.png"
         old_photo.write_bytes(b"png")
         camguard.start_or_resume_session(7)
-        self.assertEqual(camguard.finish_session(self.config, 3), 0)
+        self.assertEqual(camguard.finish_session(self.config, 3), (0, []))
         self.assertTrue(old_photo.exists())
 
     def test_restart_resumes_manifest_for_same_lock_generation(self) -> None:
@@ -108,17 +130,30 @@ class NotificationTests(unittest.TestCase):
             self.assertFalse(camguard.notify_intruder_photos(0))
             run.assert_not_called()
 
-    def test_notification_uses_the_omarchy_session_bus(self) -> None:
+    def test_notification_opens_photo_on_click(self) -> None:
         completed = camguard.subprocess.CompletedProcess([], 0, "", "")
-        with mock.patch.object(camguard.subprocess, "run", return_value=completed) as run:
-            self.assertTrue(camguard.notify_intruder_photos(2))
+        with tempfile.TemporaryDirectory() as directory:
+            photo = Path(directory) / "evidence.png"
+            photo.write_bytes(b"png")
+            with mock.patch.object(camguard.subprocess, "run", return_value=completed) as run:
+                self.assertTrue(camguard.notify_intruder_photos(2, str(photo)))
 
-        command = run.call_args.args[0]
-        environment = run.call_args.kwargs["env"]
-        self.assertEqual(command[0], "/usr/bin/notify-send")
-        self.assertIn("--urgency=critical", command)
-        self.assertIn("2 photos restent", command[-1])
-        self.assertTrue(environment["DBUS_SESSION_BUS_ADDRESS"].endswith("/bus"))
+            command = run.call_args.args[0]
+            environment = run.call_args.kwargs["env"]
+            resolved = str(photo.resolve())
+            self.assertEqual(command[0], "/usr/bin/omarchy-notification-send")
+            self.assertIn("critical", command)
+            self.assertTrue(any("2 photos restent" in part for part in command))
+            self.assertIn("--image", command)
+            self.assertEqual(command[command.index("--image") + 1], resolved)
+            self.assertIn("-i", command)
+            self.assertEqual(command[command.index("-i") + 1], resolved)
+            self.assertNotIn("camera-photo", command)
+            self.assertEqual(
+                command[command.index("--exec") :],
+                ["--exec", "xdg-open", resolved],
+            )
+            self.assertTrue(environment["DBUS_SESSION_BUS_ADDRESS"].endswith("/bus"))
 
 
 class RetentionTests(unittest.TestCase):

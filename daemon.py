@@ -70,6 +70,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "photoDirectory": str(DEFAULT_PHOTO_DIR),
 }
 
+# One activity window = 1 immediate + 2 follow-ups. A normal laptop unlock is often
+# lid open (one burst) then password typing (second burst) → up to 6 photos.
+UNLOCK_DELETE_COUNT = 6
+
 TRIGGER_FILENAMES = {
     "lid": "opening_computer_case",
     "keyboard": "key_pressed",
@@ -462,26 +466,62 @@ def session_has_photos(session: dict[str, Any]) -> bool:
     return isinstance(records, list) and len(records) > 0
 
 
-def notify_intruder_photos(photo_count: int) -> bool:
+def notify_intruder_photos(photo_count: int, open_path: str = "") -> bool:
     if photo_count <= 0:
         return False
 
     noun = "photo reste" if photo_count == 1 else "photos restent"
+    body = f"{photo_count} {noun} à vérifier après le déverrouillage."
+    if open_path:
+        body += " Cliquez pour ouvrir."
     environment = os.environ.copy()
     environment.setdefault(
         "DBUS_SESSION_BUS_ADDRESS",
         f"unix:path={RUNTIME_DIR.parent / 'bus'}",
     )
+
+    # Prefer a real PNG path for both the toast thumbnail (--image) and the app
+    # icon slot (-i). Themed names like "camera-photo" paint Qt's broken-image
+    # checkerboard in austraz.notifications (same class of bug as Cursor CLI).
+    image_path = ""
+    if open_path:
+        target = Path(open_path)
+        try:
+            if target.is_file():
+                image_path = str(target.resolve())
+        except OSError:
+            image_path = ""
+
+    command: list[str]
+    if Path("/usr/bin/omarchy-notification-send").is_file():
+        command = [
+            "/usr/bin/omarchy-notification-send",
+            "--app-name",
+            "CamGuard",
+            "-u",
+            "critical",
+        ]
+        if image_path:
+            command.extend(["-i", image_path, "--image", image_path])
+        else:
+            command.extend(["-g", "󰄀"])
+        command.extend(["CamGuard — Intrus photographié", body])
+        if image_path:
+            command.extend(["--exec", "xdg-open", image_path])
+    else:
+        command = [
+            "/usr/bin/notify-send",
+            "--app-name=CamGuard",
+            "--urgency=critical",
+            "CamGuard — Intrus photographié",
+            body,
+        ]
+        if image_path:
+            command.append(f"--icon={image_path}")
+
     try:
         result = subprocess.run(
-            [
-                "/usr/bin/notify-send",
-                "--app-name=CamGuard",
-                "--urgency=critical",
-                "--icon=camera-photo",
-                "CamGuard — Intrus photographié",
-                f"{photo_count} {noun} à vérifier après le déverrouillage.",
-            ],
+            command,
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
@@ -496,7 +536,7 @@ def notify_intruder_photos(photo_count: int) -> bool:
     if result.returncode != 0:
         detail = result.stderr.strip()
         print(
-            f"notification failed: {detail or f'notify-send exited with {result.returncode}'}",
+            f"notification failed: {detail or f'{command[0]} exited with {result.returncode}'}",
             flush=True,
         )
         return False
@@ -545,31 +585,52 @@ def record_session_photo(photo: str, trigger_kind: str) -> None:
     atomic_json(SESSION_PATH, session)
 
 
-def finish_session(config: dict[str, Any], delete_count: int = 3) -> int:
+def finish_session(
+    config: dict[str, Any], delete_count: int = UNLOCK_DELETE_COUNT
+) -> tuple[int, list[Path]]:
+    """Drop the newest session photos on unlock.
+
+    Returns ``(deleted, remaining_session_photos)``. Remaining paths are only
+    files still on disk that belong to this session — not older leftovers in the
+    photo directory (those must not trigger an intruder alert).
+    """
     session = read_json(SESSION_PATH)
     if session.get("active") is not True:
-        return 0
+        return 0, []
     records = session.get("photos")
     if not isinstance(records, list):
         records = []
     root = Path(config["photoDirectory"]).expanduser().resolve()
+    delete_paths = {
+        Path(str(record.get("path", "")))
+        for record in records[-delete_count:]
+        if isinstance(record, dict)
+    }
     deleted = 0
-    for record in records[-delete_count:]:
+    remaining_paths: list[Path] = []
+    for record in records:
         if not isinstance(record, dict):
             continue
         photo = Path(str(record.get("path", "")))
         try:
             photo.resolve().relative_to(root)
-            if photo.is_file():
-                photo.unlink()
-                deleted += 1
         except (OSError, ValueError):
             continue
+        if photo in delete_paths:
+            try:
+                if photo.is_file():
+                    photo.unlink()
+                    deleted += 1
+            except OSError:
+                if photo.is_file():
+                    remaining_paths.append(photo)
+        elif photo.is_file():
+            remaining_paths.append(photo)
     session["active"] = False
     session["endedAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
     session["deletedAtUnlock"] = deleted
     atomic_json(SESSION_PATH, session)
-    return deleted
+    return deleted, remaining_paths
 
 
 def latest_photo(config: dict[str, Any]) -> str:
@@ -696,16 +757,26 @@ def main() -> int:
                         )
                     elif transition == "unlocked":
                         finished_session = read_json(SESSION_PATH)
-                        deleted = finish_session(config, 3)
+                        deleted, remaining_paths = finish_session(config)
+                        remaining_session = len(remaining_paths)
                         photo_count = stored_photo_count(config)
                         last_photo = latest_photo(config)
                         armed = False
                         schedule.reset()
                         monitor.close()
-                        if session_has_photos(finished_session) and photo_count > 0:
-                            notify_intruder_photos(photo_count)
+                        # Alert only when THIS lock session still has evidence after
+                        # hygiene. Leftovers from older sessions must not re-alert on
+                        # every password unlock.
+                        if session_has_photos(finished_session) and remaining_session > 0:
+                            open_target = str(remaining_paths[-1])
+                            notify_intruder_photos(remaining_session, open_target)
                         print(
-                            f"unlocked: deleted {deleted} photo(s) from active session",
+                            f"unlocked: deleted {deleted} photo(s) from active session"
+                            + (
+                                f", {remaining_session} remain"
+                                if remaining_session
+                                else ""
+                            ),
                             flush=True,
                         )
 

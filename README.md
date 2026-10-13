@@ -30,8 +30,8 @@ When Omarchy is locked, CamGuard arms a small privileged daemon. The first activ
 | :--- | :--- | :--- |
 | **Someone opens the lid** | You unlock later with no trail | Photos under `~/Pictures/CamGuard` |
 | **Typing / trackpad while locked** | Same | Burst capped to a short activity window |
-| **Your own unlock** | — | Last 3 session photos removed so routine unlocks stay quiet |
-| **Intruder left more evidence** | Easy to miss | Critical Omarchy notification if photos remain |
+| **Your own unlock** | — | Last 6 session photos removed so lid + password unlocks stay quiet |
+| **Intruder left more evidence** | Easy to miss | Critical Omarchy notification if that session still has photos after hygiene |
 | **Old captures** | Manual cleanup | Auto-delete after 24 h (configurable) |
 
 > **Note:** The camera privacy LED is hardware-controlled on most laptops. CamGuard cannot hide it.
@@ -44,8 +44,9 @@ When Omarchy is locked, CamGuard arms a small privileged daemon. The first activ
 - Atomic PNG writes; images mode `0600`.
 
 ### 🧹 Unlock hygiene
-- Deletes only the last three photos from the **current** lock session.
-- If that session produced photos and files still remain → critical `notify-send` popup.
+- Deletes the last six photos from the **current** lock session (covers a lid burst plus a password burst).
+- If that session still has photos afterward → critical toast; click opens the newest remaining photo.
+- Older leftovers in the photo folder do **not** re-trigger the alert on the next unlock.
 - Retention sweep every five minutes while the daemon runs.
 
 ### 🧩 Omarchy bar panel
